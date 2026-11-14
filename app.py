@@ -1,0 +1,24 @@
+import os
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route("/")
+def hello():
+    return jsonify({
+        "message": "Hello from DevOps Pipeline! System is working perfectly.",
+        "status": "success"
+    })
+
+# Endpoint สำคัญสำหรับ DevOps ใช้ทำ Health Check / Liveness Probe
+@app.route("/health")
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "service": "devops-mini-project"
+    }), 200
+
+if __name__ == "__main__":
+    # รองรับการ override PORT ผ่าน Environment Variable (12-Factor App)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

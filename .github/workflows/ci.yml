@@ -1,21 +1,29 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
-# กำหนดให้ทำงานเมื่อมีการ Push หรือสร้าง Pull Request ไปที่ branch master หรือ main
 on:
   push:
     branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
 
+# กำหนดสิทธิ์ให้ GitHub Actions สามารถเขียน Package ลง GHCR ได้
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # แปลงชื่อ Image เป็น lowercase: ghcr.io/<owner>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   # ==========================================
-  # Job ที่ 1: Automated Testing
+  # Job 1: Automated Testing
   # ==========================================
   test:
     name: Run Automated Tests
     runs-on: ubuntu-latest
 
-    # จำลอง Redis Service ขึ้นมาบน Cloud Runner ให้แอปทดสอบเชื่อมต่อได้จริง
     services:
       redis:
         image: redis:7-alpine
@@ -28,24 +36,20 @@ jobs:
           --health-retries 5
 
     steps:
-      # ดึงโค้ดจาก Git Repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ติดตั้ง Python บน Ubuntu Runner
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      # ติดตั้ง Dependencies
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # รัน Unit Tests ด้วย Pytest
       - name: Run Pytest
         env:
           REDIS_HOST: localhost
@@ -54,26 +58,47 @@ jobs:
           pytest -v
 
   # ==========================================
-  # Job ที่ 2: Docker Build & Verification
+  # Job 2: Build & Push Docker Image to GHCR
   # ==========================================
-  build-container:
-    name: Build & Verify Docker Image
-    needs: test # ให้ทำ Job นี้ก็ต่อเมื่อ Test ผ่านแล้วเท่านั้น (CI Best Practice)
+  build-and-push:
+    name: Build & Push Container Image
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ติดตั้ง Docker Buildx (Engine สำหรับการ build image มาตรฐานสากล)
+      # ติดตั้ง Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ทดสอบสั่ง Build Dockerfile บน Cloud
-      - name: Build Docker Image
+      # Login เข้า GitHub Container Registry (ghcr.io)
+      # ทำงานเฉพาะเมื่อ Push โค้ด (ไม่ทำเมื่อเป็น Pull Request เพื่อความปลอดภัย)
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # สกัด Metadata และสร้าง Tags อัตโนมัติ (เช่น latest, git commit sha)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+
+      # สั่ง Build และ Push ขึ้น GHCR
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: false # ทดสอบ Build ให้ผ่านก่อน ยังไม่ต้อง Push ขึ้น Registry
-          tags: devops-mini-project:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

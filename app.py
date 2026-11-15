@@ -27,7 +27,7 @@ def hello():
             redis_status = "Connection Failed"
 
     return jsonify({
-        "message": "กำลังศึกษาที่จะเป็น DevOps Engineer ด้วยพื้นฐานแน่นๆ",
+        "message": "Hello from DevOps Pipeline! Version 1.1 by Oran is LIVE!",
         "status": "success",
         "redis_status": redis_status,
         "page_views": visits
